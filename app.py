@@ -19,7 +19,13 @@ if 'matched_conditions' not in st.session_state:
 
 @st.cache_data
 def load_data():
-    return pd.read_excel("SymptomBotDB.xlsx")
+    # For local development
+    try:
+        return pd.read_excel("SymptomBotDB.xlsx")
+    except:
+        # For Streamlit Cloud deployment
+        excel_url = "https://github.com/emmsdan/streamlit-test/raw/refs/heads/main/SymptomBotDB.xlsx"
+        return pd.read_excel(excel_url)
 
 def load_logo():
     return Image.open("logo.png")
