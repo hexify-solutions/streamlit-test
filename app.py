@@ -6,6 +6,8 @@ from difflib import SequenceMatcher
 st.set_page_config(page_title="LexAI Symptom Checker", page_icon="🩺", layout="centered")
 
 # Initialize session state safely
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
 if 'page' not in st.session_state:
     st.session_state.page = "welcome"
 if 'user_data' not in st.session_state:
@@ -103,6 +105,25 @@ def match_conditions_by_symptoms(input_text, db):
                 continue
             break
     return pd.DataFrame(matched_conditions).drop_duplicates()
+def login_page():
+    st.title("LexAI Symptom Checker Login")
+
+    # Create a form for login
+    with st.form("login_form"):
+        password = st.text_input("Enter Password", type="password")
+        submit_button = st.form_submit_button("Login")
+
+    # Check password
+    if submit_button:
+        if password == "lexmedical":
+            st.session_state.logged_in = True
+            st.session_state.page = "welcome"
+            st.rerun()
+        else:
+            st.error("Incorrect password. Please try again.")
+
+    # Optional: Add a forgot password hint (remove in production)
+    st.caption("Hint: The password is 'LexTest123'")
 
 def welcome_page():
     st.image(logo, width=120)
@@ -438,6 +459,7 @@ def fallback_page():
             st.rerun()
 
 PAGES = {
+    "login": login_page,
     "welcome": welcome_page,
     "user_info": user_info_page,
     "symptom_category": symptom_category_page,
@@ -451,4 +473,7 @@ PAGES = {
     "fallback_page": fallback_page,
 }
 
-PAGES[st.session_state.page]()
+if not st.session_state.logged_in:
+    login_page()
+else:
+    PAGES[st.session_state.page]()
