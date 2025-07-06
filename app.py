@@ -382,7 +382,7 @@ def results_page():
     st.markdown(f"""
     <div style='margin-bottom: 20px;'>
         <p style='font-size: 16px;'><strong>Likely Condition:</strong></p>
-        <p style='font-size: 18px; padding: 10px; background: #eefced; border-radius: 5px;'>
+        <p style='font-size: 18px; padding: 10px; background: #eefced; color: #0D5C0D; border-radius: 5px;'>
         {condition_title}
         </p>
     </div>
@@ -402,7 +402,7 @@ def results_page():
         st.warning("I couldn’t find a clear match for your symptoms, which could mean they’re mild or need professional evaluation.")
 
         if pd.notna(condition["Referral"]) if condition is not None else False:
-            st.markdown(f"<div style='margin-top: 10px; background: #eefced; padding: 10px; border-radius: 5px;'>{condition['Referral']}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='margin-top: 10px; background: #eefced; color: #0D5C0D; padding: 10px; border-radius: 5px;'>{condition['Referral']}</div>", unsafe_allow_html=True)
             st.button("📅 Schedule Appointment")
 
         col1, col2 = st.columns([1, 1])
@@ -429,7 +429,7 @@ def results_page():
         st.success(condition["Default Recommendation"])
 
     if pd.notna(condition["Referral"]) if condition is not None else False:
-        st.markdown(f"<div style='margin-top: 20px; padding: 10px; background: #eefced; border-radius: 5px;'>{condition['Referral']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top: 20px; padding: 10px; background: #eefced; color: #0D5C0D; border-radius: 5px;'>{condition['Referral']}</div>", unsafe_allow_html=True)
         st.button("📅 Schedule Appointment")
 
     col1, col2 = st.columns([1, 1])
