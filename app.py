@@ -140,7 +140,7 @@ def user_info_page():
         age = st.number_input("Age", min_value=18, max_value=120)
         gender = st.radio("Gender", ["Male", "Female"], horizontal=True)
         conditions = st.text_input("Existing conditions", placeholder="Mention any long-term health issues you live with (like asthma or none)")
-        
+
         submit_col, _ = st.columns([1, 2])
         with submit_col:
             cont = st.form_submit_button("Continue →", type="primary")
@@ -391,11 +391,11 @@ def results_page():
     if clarifying_1 == "Yes" or clarifying_2 == "Yes":
         if has_risk:
             st.session_state.is_high_risk = True
-            st.markdown("**Based on my assessment and your pre-existing health status:**")
+            st.markdown("**Due to indicators of higher risk, please review the following escalated care instructions carefully:**")
             st.info(condition["Escalated Recommendation"])
         else:
             st.session_state.is_high_risk = False
-            st.markdown("**Based on my assessment, your likely condition is:**")
+            st.markdown("**After analyzing your inputs, these are the recommended next steps:**")
             st.success(condition["Default Recommendation"])
     elif clarifying_1 == "No" and clarifying_2 == "No" and not has_risk:
         st.session_state.is_high_risk = False
@@ -459,7 +459,6 @@ def fallback_page():
             st.rerun()
 
 PAGES = {
-    "login": login_page,
     "welcome": welcome_page,
     "user_info": user_info_page,
     "symptom_category": symptom_category_page,
