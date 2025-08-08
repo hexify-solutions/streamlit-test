@@ -70,13 +70,13 @@ if 'matched_conditions' not in st.session_state:
 def load_data():
     # For local development
     try:
-        df = pd.read_excel("SymptomBotDB.xlsx")
+        df = pd.read_excel("SymptomBotDB-3.xlsx")
     except:
         # For Streamlit Cloud deployment
-        excel_url = "https://github.com/emmsdan/streamlit-test/raw/refs/heads/main/SymptomBotDB.xlsx"
+        excel_url = "https://github.com/emmsdan/streamlit-test/raw/refs/heads/main/SymptomBotDB-3.xlsx"
         df = pd.read_excel(excel_url)
 
-#    df = pd.read_excel("SymptomBotDB.xlsx")
+#    df = pd.read_excel("SymptomBotDB-3.xlsx")
     # ── Normalize every header: remove leading/trailing whitespace ──
     df.columns = df.columns.str.strip()
     return df
