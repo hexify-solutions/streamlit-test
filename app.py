@@ -16,7 +16,10 @@ import os
 import csv
 from datetime import datetime
 
+
 LOG_PATH = "failure_log.csv"
+
+GENERIC_TOKENS = {"pain", "ache", "aches", "soreness", "discomfort"}
 
 def log_failure(record: dict):
     file_exists = os.path.isfile(LOG_PATH)
@@ -417,20 +420,42 @@ def symptom_free_input_page():
                                                   ]
                     sym_stems = list(set(sym_stems))
 
-                    # a) substring match: any user token in the cleaned symptom
-                    if any(tok in sym_clean for tok in user_tokens):
+                    # Remove generic stems for fallback matching
+                    generic_stems = {stem(t) for t in GENERIC_TOKENS}
+                    filtered_user_tokens = [t for t in user_tokens if t not in GENERIC_TOKENS]
+                    filtered_user_stems  = [s for s in user_stems if s not in generic_stems]
+
+
+                    # a) substring match: require either a specific token, or generic+specific together
+                    has_specific = any(tok in sym_clean for tok in filtered_user_tokens)
+                    has_generic  = any(tok in sym_clean for tok in GENERIC_TOKENS)
+                    user_used_generic = any(t in GENERIC_TOKENS for t in user_tokens)
+
+                    if user_used_generic and filtered_user_tokens:
+                        # Require BOTH specific and generic in the same phrase (e.g., 'back' + 'pain')
+                        if has_specific and has_generic:
+                            matches.add(idx)
+                            break
+                    else:
+                        # If user didn’t type a generic, allow matching on specifics alone.
+                        # If the user typed ONLY a generic (e.g., "pain"), still allow that generic match.
+                        if has_specific or (not filtered_user_tokens and has_generic):
+                            matches.add(idx)
+                            break
+
+                    # b) exact stem match: require generic co-occurrence if user typed a generic+specific
+                    if user_used_generic and filtered_user_tokens and not has_generic:
+                        pass  # skip this phrase; no generic here
+                    elif any(us == ds for us in filtered_user_stems for ds in sym_stems):
                         matches.add(idx)
                         break
 
-                    # b) exact stem match: any user stem == any symptom stem
-                    if any(us == ds for us in user_stems for ds in sym_stems):
-                        matches.add(idx)
-                        break
-
-                    # c) fuzzy-stem match across token pairs
-                    if any(
+                    # c) fuzzy-stem match across token pairs (same generic co-occurrence rule)
+                    if user_used_generic and filtered_user_tokens and not has_generic:
+                        pass  # skip; user asked for 'X + pain', but this phrase has no pain-term
+                    elif any(
                         SequenceMatcher(None, us, ds).ratio() >= threshold
-                        for us in user_stems
+                        for us in filtered_user_stems
                         for ds in sym_stems
                     ):
                         matches.add(idx)
@@ -489,7 +514,11 @@ def symptom_primary_category_freeinput_page():
 
     # now safe: we know matched_conditions exists and has columns
     subset = st.session_state.matched_conditions
-    primaries = sorted(subset["Primary Category"].dropna().unique())
+    current_gender = st.session_state.user_data.get('gender')
+    primaries = [
+        cat for cat in sorted(subset["Primary Category"].dropna().unique())
+        if is_gender_allowed(cat, current_gender, suppress_error=True)
+    ]
     choice = display_grid(primaries, cols=2)
     if choice:
         st.session_state.user_data['primary_category'] = choice
@@ -916,7 +945,7 @@ def results_page():
 
         # Main block
         html = (
-            f"<div style='background-color:{bg}; border:1px solid {bd}; padding:12px; "
+            f"<div style='background-color:{bg} !important; border:1px solid {bd} !important; padding:12px; color: #000 !important; "
             "border-radius:6px; font-size:18px; line-height:1.5;'>"
             f"{main.replace('\n','<br>')}"
             "</div>"
@@ -925,7 +954,7 @@ def results_page():
         # Referral text (bold)
         ref_text = condition.get("Referral", "").strip()
         if ref_text:
-            html += f"<p><strong>{ref_text}</strong></p>"
+            html += f"<p style='background-color: #f0f0f0;'><strong style='color: #000 !important;'>{ref_text}</strong></p>"
 
         # Emergency note styling
         #if note:
@@ -941,7 +970,7 @@ def results_page():
         bg, bd, color = '#fff3cd', '#ffeeba', '#856404'
         html = (
             f"<div style='background-color:{bg}; border:1px solid {bd}; padding:12px; "
-            "border-radius:6px; color:{color}; font-size:18px; line-height:1.5;'>"
+            "border-radius:6px; color:{color}!important; font-size:18px; line-height:1.5;'>"
             "I’m not able to match a condition confidently. Please consider consulting a "
             "healthcare professional for a definitive evaluation."
             "</div>"
@@ -972,7 +1001,7 @@ def results_page():
     if note:
         st.markdown(
             f"<div style='margin-top:24px; padding:12px; background-color:#f8d7da; "
-            f"border:1px solid #f5c6cb; border-radius:6px; font-weight:bold; font-size:18px; "
+            f"border:1px solid #f5c6cb; color: #856404 !important; border-radius:6px; font-weight:bold; font-size:18px; "
             f"line-height:1.4;'>🚨 Important: {note}</div>",
             unsafe_allow_html=True
     )
