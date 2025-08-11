@@ -1077,11 +1077,13 @@ def results_page():
         main_text = parts[0].strip()
 
         # MAIN CARD (mobile-friendly class)
+        safe_text = main_text.replace('\n', '<br>')
         html = (
             f"<div class='{block_class}'>"
-            f"{main_text.replace('\n','<br>')}"
+            f"{safe_text}"
             "</div>"
         )
+
 
         # Optional referral line below the card
         ref_text = (condition.get("Referral", "") or "").strip()
@@ -1178,10 +1180,9 @@ PAGES = {
     "fallback_page": fallback_page,
     "analytics": analytics_page,
 }
-
 # ---- Auth gate: show login until authenticated ----
 if not st.session_state.get("logged_in", False):
     login_page()
-st.stop()
+    st.stop()
 
 PAGES[st.session_state.page]()
