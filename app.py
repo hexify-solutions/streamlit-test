@@ -53,9 +53,55 @@ def stem(word: str) -> str:
 
 st.set_page_config(page_title="LEXY... LexMedical AI Triage System", page_icon="🩺", layout="centered")
 
+# --- Mobile-friendly, high-contrast styles ---
+st.markdown("""
+<style>
+.report-block {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #2b0000;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.report-block--ok {
+  background-color: #d4edda;
+  border-color: #c3e6cb;
+  color: #062b0a;
+}            
+.report-block--warn {
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  color: #3a2e00;
+}
+.emergency-block {
+  margin-top: 16px;
+  padding: 14px;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #2b0000;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .report-block, .emergency-block {
+    font-size: 1.05rem;
+    line-height: 1.7;
+    padding: 18px;
+  }
+  .stButton > button { width: 100% !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Initialize session state safely
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
 if 'free_input_mode' not in st.session_state:
     st.session_state.free_input_mode = False
 if 'page' not in st.session_state:
@@ -68,21 +114,84 @@ if 'confirmed_risks' not in st.session_state:
     st.session_state.confirmed_risks = []
 if 'matched_conditions' not in st.session_state:
     st.session_state.matched_conditions = pd.DataFrame()
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
 
 @st.cache_data
 def load_data():
-    # For local development
-    try:
-        df = pd.read_excel("SymptomBotDB-3.xlsx")
-    except:
-        # For Streamlit Cloud deployment
-        excel_url = "https://github.com/emmsdan/streamlit-test/raw/refs/heads/main/SymptomBotDB-3.xlsx"
-        df = pd.read_excel(excel_url)
-
-#    df = pd.read_excel("SymptomBotDB-3.xlsx")
+    df = pd.read_excel("SymptomBotDB.xlsx")
     # ── Normalize every header: remove leading/trailing whitespace ──
     df.columns = df.columns.str.strip()
     return df
+# --- Free-text normalization driven by Excel (FreeTextMap sheet) ---
+
+@st.cache_data
+def load_freetext_map() -> dict:
+    """
+    Reads SymptomBotDB.xlsx -> sheet 'FreeTextMap' with columns:
+      from_phrase, to_phrase  (case-insensitive)
+    Returns dict {from_phrase_lower: to_phrase_lower}.
+    If the sheet is missing, returns {} (no-op).
+    """
+    try:
+        df_map = pd.read_excel("SymptomBotDB.xlsx", sheet_name="FreeTextMap")
+        df_map.columns = df_map.columns.str.strip().str.lower()
+        if not {"from_phrase","to_phrase"}.issubset(df_map.columns):
+            return {}
+        # build lowercase map, drop blanks
+        m = {}
+        for _, r in df_map.iterrows():
+            fp = str(r["from_phrase"]).strip().lower()
+            tp = str(r["to_phrase"]).strip().lower()
+            if fp and tp and fp != "nan" and tp != "nan":
+                m[fp] = tp
+        return m
+    except Exception:
+        return {}
+
+FT_MAP = load_freetext_map()
+
+# c) fuzzy-stem match across token pairs (safer)
+def ok_pair(us, ds):
+    # ignore very short tokens for fuzzy; exact/substring already handled earlier
+    if len(us) < 4 or len(ds) < 4:
+        return False
+    # require same starting letter OR substring relation to avoid heart≈ear/hurt
+    if not (us[0] == ds[0] or us in ds or ds in us):
+        return False
+    return SequenceMatcher(None, us, ds).ratio() >= 0.80  # was 0.65
+
+
+def normalize_free_text(raw: str) -> str:
+    """
+    Minimal, safe normalization:
+      - lowercase + trim
+      - unify curly quotes
+      - apply FreeTextMap replacements (longest-first)
+      - a couple high-impact typo/alias fixes
+    Returns a SINGLE normalized string you feed into your existing matcher.
+    """
+    if not raw:
+        return ""
+    text = raw.strip().lower()
+
+    # normalize curly quotes to ascii to avoid miss matches
+    text = (text
+            .replace("’", "'")
+            .replace("‘", "'")
+            .replace("“", '"')
+            .replace("”", '"'))
+
+    # tiny typo fix that bites often
+    text = text.replace("heatbeat", "heartbeat")
+
+    # Apply Excel-driven phrase replacements, longest keys first to avoid partial shadowing
+    if FT_MAP:
+        for k in sorted(FT_MAP.keys(), key=len, reverse=True):
+            if k in text:
+                text = text.replace(k, FT_MAP[k])
+
+    return text
 
 
 def load_logo():
@@ -163,8 +272,9 @@ def match_conditions_by_symptoms(input_text, db):
                 continue
             break
     return pd.DataFrame(matched_conditions).drop_duplicates()
+
 def login_page():
-    st.title("LexAI Symptom Checker Login")
+    st.title("Lexy- Carekonnect Symptom Checker Login")
 
     # Create a form for login
     with st.form("login_form"):
@@ -180,8 +290,8 @@ def login_page():
         else:
             st.error("Incorrect password. Please try again.")
 
-    # Optional: Add a forgot password hint (remove in production)
-    st.caption("Hint: The password is 'LexTest123'")
+
+
 
 def welcome_page():
     # ─── 1) Inject custom CSS for styling ───
@@ -342,17 +452,24 @@ def symptom_category_page():
     if not current_gender:
         st.error("Gender not selected. Please go back.")
         return
+    
+    # ─── 2b) Age-aware category list (hide Pediatrics for 15+) ───
+    current_age = st.session_state.user_data.get('age')
 
-    # ─── 3) Filter categories by gender ───
-    valid_categories = [
-        cat for cat in db["Primary Category"].unique()
-        if is_gender_allowed(cat, current_gender, suppress_error=True)
-    ]
+    valid_categories = []
+    for cat in db["Primary Category"].unique():
 
-    # ─── 4) Render your 3-col grid via display_grid ───
+        # Hide Pediatrics for ages 15+
+        if (current_age is not None) and (current_age >= 15) and str(cat).strip().lower() == "pediatrics":
+            continue
+        if is_gender_allowed(cat, current_gender, suppress_error=True):
+            valid_categories.append(cat)
+
+   
+    # ─── 3) Render your 3-col grid via display_grid ───
     selected = display_grid(valid_categories, cols=3)
 
-    # ─── 5) Handle a valid selection ───
+    # ─── 4) Handle a valid selection ───
     if selected and is_gender_allowed(selected, current_gender):
         st.session_state.free_input_mode = False
         st.session_state.matched_conditions = pd.DataFrame()
@@ -360,12 +477,12 @@ def symptom_category_page():
         st.session_state.page = "symptom_subcategory"
         st.rerun()
 
-    # ─── 6) Free-text fallback ───
+    # ─── 5) Free-text fallback ───
     if st.button("Can’t find your symptoms? Enter them here"):
         st.session_state.page = "symptom_free_input"
         st.rerun()
 
-    # ─── 7) Back button ───
+    # ─── 6) Back button ───
     if st.button("← Back"):
         st.session_state.page = "user_info"
         st.rerun()
@@ -384,6 +501,12 @@ def symptom_free_input_page():
         if not symptom_input.strip():
             st.warning("Please enter at least one symptom to search.")
         else:
+
+            # 🔹 Normalize once using the Excel FreeTextMap (and tiny typo fixes)
+            symptom_input = normalize_free_text(symptom_input)
+
+            # st.caption(f"normalized: {symptom_input}")
+
             # 1) Normalize & split on commas
             inputs = [p.strip().lower() for p in symptom_input.split(",") if p.strip()]
 
@@ -450,16 +573,25 @@ def symptom_free_input_page():
                         matches.add(idx)
                         break
 
-                    # c) fuzzy-stem match across token pairs (same generic co-occurrence rule)
+                    # c) fuzzy-stem match across token pairs (safer)
+                    def ok_pair(us, ds):
+                        # ignore very short tokens for fuzzy; exact/substring were checked earlier
+                        if len(us) < 4 or len(ds) < 4:
+                            return False
+                        # avoid heart≈ear/hurt: require same first letter OR substring relation
+                        if not (us[0] == ds[0] or us in ds or ds in us):
+                            return False
+                        # tighter similarity threshold
+                        return SequenceMatcher(None, us, ds).ratio() >= 0.80
+
+                    # keep your co-occurrence guard: if user typed a generic+specific but this phrase
+                    # lacks the generic term, don't allow fuzzy to pull it in
                     if user_used_generic and filtered_user_tokens and not has_generic:
-                        pass  # skip; user asked for 'X + pain', but this phrase has no pain-term
-                    elif any(
-                        SequenceMatcher(None, us, ds).ratio() >= threshold
-                        for us in filtered_user_stems
-                        for ds in sym_stems
-                    ):
+                        pass
+                    elif any(ok_pair(us, ds) for us in filtered_user_stems for ds in sym_stems):
                         matches.add(idx)
                         break
+
                 # end raw_sym loop
                 # if we matched this row, stop checking it
                 if idx in matches:
@@ -515,9 +647,17 @@ def symptom_primary_category_freeinput_page():
     # now safe: we know matched_conditions exists and has columns
     subset = st.session_state.matched_conditions
     current_gender = st.session_state.user_data.get('gender')
+    current_age    = st.session_state.user_data.get('age')
+
+    # Hide Pediatrics for ages 15+
     primaries = [
         cat for cat in sorted(subset["Primary Category"].dropna().unique())
-        if is_gender_allowed(cat, current_gender, suppress_error=True)
+        if (
+            # keep Pediatrics only if age < 15
+            not ((current_age is not None) and (current_age >= 15) and str(cat).strip().lower() == "pediatrics")
+            # still respect gender gating
+            and is_gender_allowed(cat, current_gender, suppress_error=True)
+        )
     ]
     choice = display_grid(primaries, cols=2)
     if choice:
@@ -874,8 +1014,6 @@ def make_recommendation(condition: dict, user_flags: dict, risk_flags: list) -> 
 
 
 def results_page():
-
-   
     # Header and Title
     st.image(logo, width=80)
     st.header("Based on your answers, your likely condition is:")
@@ -889,19 +1027,20 @@ def results_page():
             st.session_state.page = "welcome"
             st.rerun()
         return
-    
+
     # Show the condition's name
     condition_title = condition.get("Condition", "")
     st.subheader(condition_title)
 
-    # Determine baseline acuity
+    # Determine baseline acuity (for card color)
     if st.session_state.get("free_input_mode"):
         baseline_rank = int(st.session_state.matched_conditions.get("Acuity Level", 0).max())
     else:
-        baseline_rank = int(condition.get("Acuity Level", 0))
+        baseline_rank = int(condition.get("Acuity Level", 0) or 0)
 
-    # Gather risk flags
-    risk_flags = st.session_state.user_data.get("confirmed_risks", [])
+    # Gather & sanitize risk flags (avoid accidental truthy [""])
+    raw_flags  = st.session_state.user_data.get("confirmed_risks", [])
+    risk_flags = [rf.strip() for rf in raw_flags if isinstance(rf, str) and rf.strip()]
 
     # ——— Assemble user_flags with normalized keys ———
     user_data  = st.session_state.user_data
@@ -915,62 +1054,54 @@ def results_page():
     # 2) Clarifiers from clarifying_answers
     for question, ans in user_data.get("clarifying_answers", {}).items():
         if ans == "Yes":
-            # map question text → code name
             key = question.strip().lower().replace(" ", "_")
             user_flags[key] = True
 
     # 3) Risk flags
-    for rf in user_data.get("confirmed_risks", []):
+    for rf in risk_flags:
         key = rf.strip().lower().replace(" ", "_")
         user_flags[key] = True
 
-        
-
-     # Generate recommendation
+    # Generate recommendation (string may include an appended emergency line in older builds)
     recommendation = make_recommendation(condition, user_flags, risk_flags)
 
-    # Display recommendation or fallback with colored wrappers
+    # Display recommendation or fallback with styled blocks
     if recommendation:
-        # Determine flow
+        # Your escalation rule for card color:
         is_esc = (baseline_rank == 3) or bool(risk_flags)
-        if is_esc:
-            bg, bd = '#f8d7da', '#f5c6cb'  # red
-        else:
-            bg, bd = '#d4edda', '#c3e6cb'  # green
+        block_class = "report-block" if is_esc else "report-block report-block--ok"
 
-        # Split main vs emergency note
+        # If the recommendation string contains an appended emergency line,
+        # strip it from the main text to avoid duplication (we render emergency separately).
         parts = recommendation.split('\n\n🚨 Important: ')
-        main = parts[0]
-        note = parts[1] if len(parts) > 1 else ''
+        main_text = parts[0].strip()
 
-        # Main block
+        # MAIN CARD (mobile-friendly class)
         html = (
-            f"<div style='background-color:{bg} !important; border:1px solid {bd} !important; padding:12px; color: #000 !important; "
-            "border-radius:6px; font-size:18px; line-height:1.5;'>"
-            f"{main.replace('\n','<br>')}"
+            f"<div class='{block_class}'>"
+            f"{main_text.replace('\n','<br>')}"
             "</div>"
         )
 
-        # Referral text (bold)
-        ref_text = condition.get("Referral", "").strip()
+        # Optional referral line below the card
+        ref_text = (condition.get("Referral", "") or "").strip()
         if ref_text:
-            html += f"<p style='background-color: #f0f0f0;'><strong style='color: #000 !important;'>{ref_text}</strong></p>"
+            html += f"<p><strong>{ref_text}</strong></p>"
 
-        # Emergency note styling
-        #if note:
-            #html += (
-               # "<div style='margin-top:12px; padding:10px; background-color:#f8d7da; "
-               # "border:1px solid #f5c6cb; border-radius:6px; font-weight:bold; font-size:18px;'>" 
-              #  f"🚨 Important: {note}"
-              #  "</div>"
-         #   )
         st.markdown(html, unsafe_allow_html=True)
+
+        # EMERGENCY NOTE — render once, as a separate block
+        emergency = (condition.get("Emergency Narrative (If Applicable)", "") or "").strip()
+        if emergency:
+            st.markdown(
+                f"<div class='emergency-block'>🚨 Important: {emergency}</div>",
+                unsafe_allow_html=True
+            )
+
     else:
-        # Fallback amber
-        bg, bd, color = '#fff3cd', '#ffeeba', '#856404'
+        # Fallback amber (mobile-friendly)
         html = (
-            f"<div style='background-color:{bg}; border:1px solid {bd}; padding:12px; "
-            "border-radius:6px; color:{color}!important; font-size:18px; line-height:1.5;'>"
+            "<div class='report-block report-block--warn'>"
             "I’m not able to match a condition confidently. Please consider consulting a "
             "healthcare professional for a definitive evaluation."
             "</div>"
@@ -981,30 +1112,38 @@ def results_page():
     if condition.get("Referral") and st.button("📅 Schedule an Appointment"):
         st.info("Appointment scheduling will be available soon.")
 
-    # Download report & New Check buttons
+    # Download report & New Check buttons (single set; CSS centers on mobile only)
     col1, col2 = st.columns([1, 1])
+
     with col1:
         report_text = generate_report()
         st.download_button(
             label="📄 Download Full Report",
             data=report_text,
-            file_name=f"{condition_title}_report.txt"
+            file_name=f"{condition_title}_report.txt",
+            key="dl_report"
         )
+
     with col2:
-        if st.button("🔄 Start New Check"):
+        if st.button("🔄 Start New Check", key="newcheck"):
             st.session_state.clear()
             st.session_state.page = "welcome"
             st.rerun()
 
-    # ——— Emergency note at the very bottom ———
-    note = condition.get("Emergency Narrative (If Applicable)", "").strip()
-    if note:
-        st.markdown(
-            f"<div style='margin-top:24px; padding:12px; background-color:#f8d7da; "
-            f"border:1px solid #f5c6cb; color: #856404 !important; border-radius:6px; font-weight:bold; font-size:18px; "
-            f"line-height:1.4;'>🚨 Important: {note}</div>",
-            unsafe_allow_html=True
-    )
+   # ⬇️ CSS comes immediately after these buttons
+    st.markdown("""
+    <style>
+    @media (max-width: 640px) {
+      /* Center the download button itself */
+      div[data-testid="stDownloadButton"] > button {
+        display: block !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+      }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 
 
 def fallback_page():
@@ -1040,7 +1179,9 @@ PAGES = {
     "analytics": analytics_page,
 }
 
-if not st.session_state.logged_in:
+# ---- Auth gate: show login until authenticated ----
+if not st.session_state.get("logged_in", False):
     login_page()
-else:
-    PAGES[st.session_state.page]()
+st.stop()
+
+PAGES[st.session_state.page]()
